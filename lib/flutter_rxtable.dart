@@ -165,6 +165,41 @@ abstract class RxView<ID, T> extends RxHandle {
 
   RxHandle subscribe(RxObserver<Map<ID, T>> observer);
 
+  bool get isEmpty {
+    final observer = ContextObserver<ID, T, bool>(
+      context: context,
+      view: this,
+      equality: DefaultEquality(),
+      mapper: (items) => items.values.isEmpty
+    );
+    context.add(subscribe(observer));
+    return observer.result;
+  }
+
+  bool get isNotEmpty => !isEmpty;
+
+  int get count {
+    final observer = ContextObserver<ID, T, int>(
+      context: context,
+      view: this,
+      equality: DefaultEquality(),
+      mapper: (items) => items.values.length
+    );
+    context.add(subscribe(observer));
+    return observer.result;
+  }
+
+  bool contains(ID id) {
+    final observer = ContextObserver<ID, T, bool>(
+      context: context,
+      view: this,
+      equality: DefaultEquality<bool>(),
+      mapper: (items) => items[id] != null
+    );
+    context.add(subscribe(observer));
+    return observer.result;
+  }
+
   T get(ID id) {
     final observer = ContextObserver<ID, T, T>(
       context: context,
@@ -274,6 +309,21 @@ class RxTable<ID, T> extends RxViewBase<ID, T> {
     }
   }
 
+  void saveAll(Iterable<T> rows) {
+    var changed = false;
+
+    for (final row in rows) {
+      final id = _mapper(row);
+      final oldRow = _items[id];
+      if (oldRow != row) {
+        _items[id] = row;
+        changed = true;
+      }
+    }
+
+    if (changed) notifyListeners();
+  }
+
   void deleteById(ID id) {
     final oldRow = _items.remove(id);
     if (oldRow != null) {
@@ -283,6 +333,25 @@ class RxTable<ID, T> extends RxViewBase<ID, T> {
 
   void delete(T row) {
     deleteById(_mapper(row));
+  }
+
+  void deleteAll([Iterable<T> rows]) {
+    if (rows != null) {
+      for (final row in rows) {
+        final id = _mapper(row);
+        _items.remove(id);
+      }
+    } else {
+      _items.clear();
+    }
+    notifyListeners();
+  }
+
+  void deleteAllById(Iterable<ID> ids) {
+    for (final id in ids) {
+      _items.remove(id);
+    }
+    notifyListeners();
   }
 }
 
@@ -298,8 +367,6 @@ class RxSingle<T> {
 
 class RxSet<T> extends RxTable<T, T> {
   RxSet(RxDatabase db) : super(db, (t) => t);
-
-  bool contains(T t) => get(t) != null;
 }
 
 enum RxDatabaseState {
