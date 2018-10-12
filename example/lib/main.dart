@@ -91,7 +91,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return RxConnector<MyDatabase>(
-      builder: (_, db) {
+      builder: (_, __, db) {
         final tasks = db.tasks.all();
         print(tasks);
 
@@ -120,7 +120,7 @@ class CounterAppBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return RxConnector<MyDatabase>(
-      builder: (_, db) {
+      builder: (_, __, db) {
         print("COUNTER");
         return AppBar(
           title: Text(db.counter.get().toString()),
@@ -148,7 +148,7 @@ class TaskView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return RxConnector<MyDatabase>(
-      builder: (_, db) {
+      builder: (_, __, db) {
         final model = TaskViewModel(db, task);
         print("${task.id} selection = ${model.selected}");
 

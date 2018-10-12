@@ -416,11 +416,19 @@ abstract class RxDatabase<DB extends RxDatabase<DB>> {
   }
 }
 
+abstract class Action<DB extends RxDatabase<DB>> {
+  Future<void> execute(DB db);
+}
+
+typedef Action<DB> ActionInterceptor<DB extends RxDatabase<DB>>(Action<DB> action, Action<DB> next(Action<DB> action));
+
 class RxStore<DB extends RxDatabase<DB>> extends InheritedWidget {
   final DB database;
+  final List<ActionInterceptor<DB>> interceptors;
 
   RxStore({
     this.database,
+    this.interceptors = const [],
     Key key,
     Widget child
   }) : super(
@@ -433,15 +441,26 @@ class RxStore<DB extends RxDatabase<DB>> extends InheritedWidget {
     return oldWidget.database != database;
   }
 
-  static DB of<DB extends RxDatabase<DB>>(BuildContext context) {
-    final widget = context.inheritFromWidgetOfExactType(_type<RxStore<DB>>()) as RxStore<DB>;
-    return widget.database;
+  Future<void> dispatch(Action<DB> action) async {
+    action = intercept(action);
+    await action.execute(database);
+  }
+
+  Action<DB> intercept(Action<DB> action, [int index = 0]) {
+    if (index >= interceptors.length) return action;
+    final interceptor = interceptors[index];
+    return interceptor(action, (a) => intercept(a, index + 1));
+  }
+
+  static RxStore<DB> of<DB extends RxDatabase<DB>>(BuildContext context) {
+    return context.inheritFromWidgetOfExactType(_type<RxStore<DB>>()) as RxStore<DB>;
   }
 
   static Type _type<T>() => T;
 }
 
-typedef Widget RxBuilder<DB extends RxDatabase<DB>>(BuildContext context, DB db);
+typedef Future<void> Dispatcher<DB extends RxDatabase<DB>>(Action<DB> action);
+typedef Widget RxBuilder<DB extends RxDatabase<DB>>(BuildContext context, Dispatcher<DB> dispatch, DB db);
 
 class RxConnector<DB extends RxDatabase<DB>> extends StatefulWidget {
   final RxBuilder<DB> builder;
@@ -457,15 +476,21 @@ class _RxConnectorState<DB extends RxDatabase<DB>> extends State<RxConnector<DB>
 
   @override
   Widget build(BuildContext context) {
-    final db = RxStore.of<DB>(context);
-    final result = db.query(_changed, () => widget.builder(context, db));
+    final store = RxStore.of<DB>(context);
+    final db = store.database;
+    final dispatch = store.dispatch;
+    final result = db.query(_changed, () => widget.builder(context, dispatch, db));
     _handle = result.handle;
     return result.result;
   }
 
   void _changed() {
+    if (mounted) {
+      setState(() {});
+    } else {
+      _handle?.close();
+    }
     _handle = null;
-    setState(() {});
   }
 
   @override
