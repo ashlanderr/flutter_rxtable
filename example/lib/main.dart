@@ -3,13 +3,14 @@ import 'package:flutter_rxtable/flutter_rxtable.dart';
 
 void main() => runApp(new MyApp());
 
-// database
-
 class Task {
-  final String id;
-  final String title;
+  String id;
+  String title;
+  bool completed;
 
-  Task(this.id, this.title);
+  Task(this.id, this.title, this.completed);
+
+  Task copy({String title, bool completed}) => Task(id, title ?? this.title, completed ?? this.completed);
 
   @override
   bool operator ==(Object other) =>
@@ -17,68 +18,84 @@ class Task {
       other is Task &&
         runtimeType == other.runtimeType &&
         id == other.id &&
-        title == other.title;
+        title == other.title &&
+        completed == other.completed;
 
   @override
   int get hashCode =>
     id.hashCode ^
-    title.hashCode;
+    title.hashCode ^
+    completed.hashCode;
 }
 
-class MyDatabase extends RxDatabase<MyDatabase> {
-  RxSingle<int> counter;
+class TaskDatabase extends RxDatabase {
   RxTable<String, Task> tasks;
-  RxSet<String> selection;
+  RxView<bool, List<Task>> tasksByCompletion;
 
-  MyDatabase() {
-    counter = RxSingle(this);
+  TaskDatabase() {
     tasks = RxTable(this, (t) => t.id);
-    selection = RxSet(this);
+    tasksByCompletion = tasks.group((t) => t.completed);
+
+    tasks.save(Task("1", "One", true));
+    tasks.save(Task("2", "Two", true));
+    tasks.save(Task("3", "Three", false));
   }
 
-  void init() => mutate(() {
-    counter.put(0);
-    tasks.save(Task("1", "Create RxTable library"));
-    tasks.save(Task("2", "Write example code"));
-    tasks.save(Task("3", "Test that it works"));
-    selection.save("1");
-  });
-
-  void increment() => mutate(() {
-    final count = counter.get();
-    counter.put(count + 1);
-  });
-
-  void toggleSelection(String taskId) => mutate(() {
-    final selected = selection.contains(taskId);
-    if (selected)
-      selection.delete(taskId);
-    else
-      selection.save(taskId);
-  });
+  static TaskDatabase of(BuildContext context) => RxDatabase.of<TaskDatabase>(context);
 }
 
-// view
+class TasksModule {
+  final Provider _provider;
+  TaskDatabase get _db => _provider.inject<TaskDatabase>();
 
-class MyApp extends StatelessWidget {
+  TasksModule(this._provider);
+
+  static TasksModule of(BuildContext context) => Injector.inject<TasksModule>(context);
+
+  void add(String title) {
+    final id = (_db.tasks.count + 1).toString();
+    _db.tasks.save(Task(id, title, false));
+  }
+
+  void toggleCompleted(String id) {
+    _db.tasks.update(id, (t) => t.copy(completed: !t.completed));
+  }
+}
+
+class MyApp extends StatefulWidget {
+  @override
+  _MyAppState createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  TaskDatabase _db;
+  TasksModule _tasks;
+  Provider _provider;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _provider = Provider();
+    _db = TaskDatabase();
+    _tasks = TasksModule(_provider);
+
+    _provider.provide<TaskDatabase>(_db);
+    _provider.provide<TasksModule>(_tasks);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return RxStore<MyDatabase>(
-      database: initDb(),
-      child: new MaterialApp(
+    return Injector(
+      provider: _provider,
+      child: MaterialApp(
         title: 'Flutter Demo',
-        theme: new ThemeData(
+        theme: ThemeData(
           primarySwatch: Colors.blue,
         ),
-        home: new HomePage(),
+        home: HomePage(),
       ),
     );
-  }
-
-  MyDatabase initDb() {
-    final db = MyDatabase();
-    db.init();
-    return db;
   }
 }
 
@@ -90,79 +107,90 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
-    return RxConnector<MyDatabase>(
-      builder: (_, __, db) {
-        final tasks = db.tasks.all();
-        print(tasks);
+    final db = TaskDatabase.of(context);
+    print("build home page, context = ${context.hashCode}, db.context = ${db.context.hashCode}");
 
-        return Scaffold(
-          body: Column(
-            children: <Widget>[
-              CounterAppBar(),
-              Expanded(
-                child: ListView(
-                  children: tasks.map((t) => TaskView(t)).toList(),
-                ),
-              ),
-            ],
-          ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: () => db.increment(),
-            child: Icon(Icons.add),
-          ),
-        );
-      },
+    return Scaffold(
+      appBar: AppBar(
+        title: Title(),
+      ),
+      body: TaskList(),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _addTask(context),
+        child: Icon(Icons.add),
+      ),
     );
   }
-}
 
-class CounterAppBar extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return RxConnector<MyDatabase>(
-      builder: (_, __, db) {
-        print("COUNTER");
-        return AppBar(
-          title: Text(db.counter.get().toString()),
+  void _addTask(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final controller = TextEditingController();
+
+        return AlertDialog(
+          title: Text("Add task"),
+          content: TextField(controller: controller),
+          actions: <Widget>[
+            FlatButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text("CANCEL"),
+            ),
+            FlatButton(
+              onPressed: () {
+                TasksModule.of(context).add(controller.text);
+                Navigator.of(context).pop();
+              },
+              child: Text("OK"),
+            ),
+          ],
         );
       }
     );
   }
 }
 
-class TaskViewModel {
-  String title;
-  bool selected;
+class TaskList extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final db = TaskDatabase.of(context);
+    print("build list, context = ${context.hashCode}, db.context = ${db.context.hashCode}");
+    return ListView(
+      children: db.tasks.ids.map((id) => TaskView(id)).toList(),
+    );
+  }
+}
 
-  TaskViewModel(MyDatabase db, Task task) {
-    title = task.title;
-    selected = db.selection.contains(task.id);
+class Title extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final db = TaskDatabase.of(context);
+    print("build title, context = ${context.hashCode}, db.context = ${db.context.hashCode}");
+    return Text(
+      "Tasks App (${db.tasksByCompletion[true]?.length ?? 0})"
+      //"Tasks App"
+    );
   }
 }
 
 class TaskView extends StatelessWidget {
-  final Task task;
+  final String id;
 
-  TaskView(this.task);
+  TaskView(this.id);
 
   @override
   Widget build(BuildContext context) {
-    return RxConnector<MyDatabase>(
-      builder: (_, __, db) {
-        final model = TaskViewModel(db, task);
-        print("${task.id} selection = ${model.selected}");
+    final db = TaskDatabase.of(context);
+    print("build task $id, context = ${context.hashCode}, db.context = ${db.context.hashCode}");
+    final task = db.tasks[id];
 
-        return GestureDetector(
-          child: Container(
-            color: model.selected ? Colors.orange : null,
-            child: Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Text(task.title, style: Theme.of(context).textTheme.subhead),
-            ),
-          ),
-          onTap: () => db.toggleSelection(task.id),
-        );
-      },
+    return ListTile(
+      leading: Icon(
+        Icons.check,
+        color: task.completed ? Colors.blue : Colors.grey,
+      ),
+      title: Text(task.title),
+      onTap: () => TasksModule.of(context).toggleCompleted(id),
     );
   }
 }

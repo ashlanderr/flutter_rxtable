@@ -379,134 +379,44 @@ class RxSet<T> extends RxTable<T, T> {
   RxSet(RxDatabase db) : super(db, (t) => t);
 }
 
-enum RxDatabaseState {
-  normal,
-  query,
-  mutate
-}
+class Provider {
+  final Map<Type, Object> _modules = {};
 
-abstract class RxAction<DB extends RxDatabase<DB>> {
-  Future<void> execute(DB db);
-}
-
-class ResultAndHandle<T> {
-  final T result;
-  final RxHandle handle;
-
-  ResultAndHandle(this.result, this.handle);
-}
-
-abstract class RxDatabase<DB extends RxDatabase<DB>> {
-  var _state = RxDatabaseState.normal;
-
-  RxContext _context = NullRxContext();
-  RxContext get context => _context;
-
-  ResultAndHandle<T> query<T>(VoidCallback onChange, T block()) {
-    assert(_state == RxDatabaseState.normal);
-    try {
-      _state = RxDatabaseState.query;
-      _context = CallbackRxContext(onChange);
-      final result = block();
-      return ResultAndHandle(result, _context);
-    } finally {
-      _state = RxDatabaseState.normal;
-      _context = NullRxContext();
-    }
+  T provide<T>(T impl) {
+    _modules[T] = impl;
+    return impl;
   }
 
-  void mutate(void block()) {
-    assert(_state == RxDatabaseState.normal);
-    try {
-      _state = RxDatabaseState.mutate;
-      block();
-    } finally {
-      _state = RxDatabaseState.normal;
-    }
+  T inject<T>() {
+    final impl = _modules[T];
+    assert(impl != null, "Implementation of type $T is not provided");
+    return impl;
   }
 }
 
-abstract class Action<DB extends RxDatabase<DB>> {
-  Future<void> execute(DB db);
-}
+class Injector extends InheritedWidget {
+  final Provider provider;
 
-typedef Action<DB> ActionInterceptor<DB extends RxDatabase<DB>>(Action<DB> action, Action<DB> next(Action<DB> action));
+  Injector({this.provider, Widget child, Key key}) : super(child: child, key: key);
 
-class RxStore<DB extends RxDatabase<DB>> extends InheritedWidget {
-  final DB database;
-  final List<ActionInterceptor<DB>> interceptors;
-
-  RxStore({
-    this.database,
-    this.interceptors = const [],
-    Key key,
-    Widget child
-  }) : super(
-    key: key,
-    child: child
-  );
-
-  @override
-  bool updateShouldNotify(RxStore oldWidget) {
-    return oldWidget.database != database;
-  }
-
-  Future<void> dispatch(Action<DB> action) async {
-    action = intercept(action);
-    await action.execute(database);
-  }
-
-  Action<DB> intercept(Action<DB> action, [int index = 0]) {
-    if (index >= interceptors.length) return action;
-    final interceptor = interceptors[index];
-    return interceptor(action, (a) => intercept(a, index + 1));
-  }
-
-  static RxStore<DB> of<DB extends RxDatabase<DB>>(BuildContext context) {
-    return context.inheritFromWidgetOfExactType(_type<RxStore<DB>>()) as RxStore<DB>;
-  }
-
-  static Type _type<T>() => T;
-}
-
-typedef Future<void> Dispatcher<DB extends RxDatabase<DB>>(Action<DB> action);
-typedef Widget RxBuilder<DB extends RxDatabase<DB>>(BuildContext context, Dispatcher<DB> dispatch, DB db);
-
-class RxConnector<DB extends RxDatabase<DB>> extends StatefulWidget {
-  final RxBuilder<DB> builder;
-
-  RxConnector({this.builder});
-
-  @override
-  State createState() => _RxConnectorState<DB>();
-}
-
-class _RxConnectorState<DB extends RxDatabase<DB>> extends State<RxConnector<DB>> {
-  RxHandle _handle;
-
-  @override
-  Widget build(BuildContext context) {
-    final store = RxStore.of<DB>(context);
-    final db = store.database;
-    final dispatch = store.dispatch;
-    final result = db.query(_changed, () => widget.builder(context, dispatch, db));
-    _handle = result.handle;
-    return result.result;
-  }
-
-  void _changed() {
-    if (mounted) {
-      setState(() {});
-    } else {
-      _handle?.close();
-    }
-    _handle = null;
+  static T inject<T>(BuildContext context) {
+    final injector = context.inheritFromWidgetOfExactType(Injector) as Injector;
+    return injector.provider.inject<T>();
   }
 
   @override
-  void dispose() {
-    _handle?.close();
-    _handle = null;
-    super.dispose();
+  bool updateShouldNotify(Injector oldWidget) => oldWidget.provider != provider;
+}
+
+abstract class RxDatabase {
+  RxContext context = NullRxContext();
+
+  static RxDatabase of<DB extends RxDatabase>(BuildContext context) {
+    final db = Injector.inject<DB>(context);
+    final element = context as Element;
+    final dbContext = CallbackRxContext(element.markNeedsBuild);
+    db.context = dbContext;
+    scheduleMicrotask(() => db.context = NullRxContext());
+    return db;
   }
 }
