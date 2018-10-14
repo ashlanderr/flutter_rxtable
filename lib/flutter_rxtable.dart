@@ -357,6 +357,12 @@ class RxTable<ID, T> extends RxViewBase<ID, T> {
     }
     notifyListeners();
   }
+
+  void update(ID id, T updater(T row)) {
+    var row = get(id);
+    row = updater(row);
+    save(row);
+  }
 }
 
 class RxSingle<T> {
