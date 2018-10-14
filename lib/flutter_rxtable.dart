@@ -89,7 +89,7 @@ class AssociateObserver<K, ID, T> extends RxViewBase<K, T> implements RxObserver
 
   final Mapper<T, K> mapper;
 
-  AssociateObserver(RxDatabase db, this.mapper, Map<ID, T> items) : super(db) {
+  AssociateObserver(RxDatabase db, this.mapper, Map<ID, T> items, Equality<T> equality) : super(db, equality) {
     _rebuild(items);
   }
 
@@ -124,7 +124,8 @@ class GroupObserver<K, ID, T> extends RxViewBase<K, List<T>> implements RxObserv
 
   final Mapper<T, K> mapper;
 
-  GroupObserver(RxDatabase db, this.mapper, Map<ID, T> items) : super(db) {
+  GroupObserver(RxDatabase db, this.mapper, Map<ID, T> items, Equality<T> equality)
+    : super(db, ListEquality(equality)) {
     _rebuild(items);
   }
 
@@ -157,19 +158,17 @@ class GroupObserver<K, ID, T> extends RxViewBase<K, List<T>> implements RxObserv
 
 abstract class RxView<ID, T> extends RxHandle {
   final RxDatabase db;
+  final Equality<T> equality;
   RxContext get context => db.context;
 
   Map<ID, T> get items;
 
-  RxView(this.db);
+  RxView(this.db, Equality<T> equality) : equality = equality ?? DefaultEquality();
 
   RxHandle subscribe(RxObserver<Map<ID, T>> observer);
 
   bool get isEmpty {
-    final observer = ContextObserver<ID, T, bool>(
-      context: context,
-      view: this,
-      equality: DefaultEquality(),
+    final observer = _observer(
       mapper: (items) => items.values.isEmpty
     );
     context.add(subscribe(observer));
@@ -179,10 +178,7 @@ abstract class RxView<ID, T> extends RxHandle {
   bool get isNotEmpty => !isEmpty;
 
   int get count {
-    final observer = ContextObserver<ID, T, int>(
-      context: context,
-      view: this,
-      equality: DefaultEquality(),
+    final observer = _observer(
       mapper: (items) => items.values.length
     );
     context.add(subscribe(observer));
@@ -190,10 +186,7 @@ abstract class RxView<ID, T> extends RxHandle {
   }
 
   bool contains(ID id) {
-    final observer = ContextObserver<ID, T, bool>(
-      context: context,
-      view: this,
-      equality: DefaultEquality<bool>(),
+    final observer = _observer(
       mapper: (items) => items[id] != null
     );
     context.add(subscribe(observer));
@@ -201,10 +194,8 @@ abstract class RxView<ID, T> extends RxHandle {
   }
 
   T get(ID id) {
-    final observer = ContextObserver<ID, T, T>(
-      context: context,
-      view: this,
-      equality: DefaultEquality<T>(),
+    final observer = _observer(
+      equality: equality,
       mapper: (items) => items[id]
     );
     context.add(subscribe(observer));
@@ -213,22 +204,27 @@ abstract class RxView<ID, T> extends RxHandle {
 
   T operator [](ID id) => get(id);
 
-  List<T> all() {
-    final observer = ContextObserver<ID, T, List<T>>(
-      context: context,
-      view: this,
-      equality: ListEquality<T>(),
+  List<T> get values {
+    final observer = _observer(
+      equality: ListEquality(equality),
       mapper: (items) => items.values.toList()
     );
     context.add(subscribe(observer));
     return observer.result;
   }
 
+  List<ID> get ids {
+    final observer = _observer(
+      equality: ListEquality(),
+      mapper: (items) => items.keys.toList()
+    );
+    context.add(subscribe(observer));
+    return observer.result;
+  }
+
   Iterable<T> filter(Mapper<T, bool> f) {
-    final observer = ContextObserver<ID, T, List<T>>(
-      context: context,
-      view: this,
-      equality: ListEquality<T>(),
+    final observer = _observer(
+      equality: ListEquality(equality),
       mapper: (items) => items.values.where(f).toList()
     );
     context.add(subscribe(observer));
@@ -236,9 +232,7 @@ abstract class RxView<ID, T> extends RxHandle {
   }
 
   Iterable<U> map<U>(Mapper<T, U> f) {
-    final observer = ContextObserver<ID, T, List<U>>(
-      context: context,
-      view: this,
+    final observer = _observer(
       equality: ListEquality<U>(),
       mapper: (items) => items.values.map(f).toList()
     );
@@ -247,16 +241,26 @@ abstract class RxView<ID, T> extends RxHandle {
   }
 
   RxView<K, T> associate<K>(Mapper<T, K> f) {
-    final observer = AssociateObserver<K, ID, T>(db, f, items);
+    final observer = AssociateObserver<K, ID, T>(db, f, items, equality);
     observer._handle = subscribe(observer);
     return observer;
   }
 
   RxView<K, List<T>> group<K>(Mapper<T, K> f) {
-    final observer = GroupObserver<K, ID, T>(db, f, items);
+    final observer = GroupObserver<K, ID, T>(db, f, items, equality);
     observer._handle = subscribe(observer);
     return observer;
   }
+
+  ContextObserver<ID, T, U> _observer<U>({
+    Equality<U> equality,
+    Mapper<Map<ID, T>, U> mapper,
+  }) => ContextObserver(
+    context: context,
+    view: this,
+    equality: equality ?? DefaultEquality(),
+    mapper: mapper,
+  );
 }
 
 class RxViewBaseHandler<T, ID> implements RxHandle {
@@ -274,7 +278,7 @@ class RxViewBaseHandler<T, ID> implements RxHandle {
 abstract class RxViewBase<ID, T> extends RxView<ID, T> {
   final Set<RxObserver<Map<ID, T>>> _observers = Set();
 
-  RxViewBase(RxDatabase db) : super(db);
+  RxViewBase(RxDatabase db, Equality<T> equality) : super(db, equality);
 
   @override
   RxHandle subscribe(RxObserver<Map<ID, T>> observer) {
@@ -295,7 +299,7 @@ class RxTable<ID, T> extends RxViewBase<ID, T> {
   @override
   Map<ID, T> get items => _items;
 
-  RxTable(RxDatabase db, this._mapper) : super(db);
+  RxTable(RxDatabase db, this._mapper, {Equality<T> equality}) : super(db, equality ?? DefaultEquality());
 
   @override
   void close() {}
