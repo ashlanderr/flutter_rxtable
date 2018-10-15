@@ -418,7 +418,13 @@ abstract class RxDatabase {
   static RxDatabase of<DB extends RxDatabase>(BuildContext context) {
     final db = Injector.inject<DB>(context);
     final element = context as Element;
-    final dbContext = CallbackRxContext(element.markNeedsBuild);
+    final dbContext = CallbackRxContext(() {
+      try {
+        element.markNeedsBuild();
+      } on AssertionError {
+        // fixme assert(_debugLifecycleState != _ElementLifecycle.defunct) failed sometimes
+      }
+    });
     db.context = dbContext;
     scheduleMicrotask(() => db.context = NullRxContext());
     return db;
