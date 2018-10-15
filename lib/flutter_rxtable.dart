@@ -363,6 +363,23 @@ class RxTable<ID, T> extends RxViewBase<ID, T> {
     row = updater(row);
     save(row);
   }
+
+  void reset(Iterable<T> rows) {
+    var changed = false;
+
+    if (_items.isNotEmpty) {
+      _items.clear();
+      changed = true;
+    }
+
+    for (final row in rows) {
+      final id = _mapper(row);
+      _items[id] = row;
+      changed = true;
+    }
+
+    if (changed) notifyListeners();
+  }
 }
 
 class RxSingle<T> {
