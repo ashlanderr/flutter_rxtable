@@ -399,9 +399,13 @@ class Injector extends InheritedWidget {
 
   Injector({this.provider, Widget child, Key key}) : super(child: child, key: key);
 
-  static T inject<T>(BuildContext context) {
+  static Provider of(BuildContext context) {
     final injector = context.inheritFromWidgetOfExactType(Injector) as Injector;
-    return injector.provider.inject<T>();
+    return injector.provider;
+  }
+
+  static T inject<T>(BuildContext context) {
+    return of(context).inject<T>();
   }
 
   @override
