@@ -390,6 +390,8 @@ class RxSingle<T> {
   T get() => _table.get(true);
 
   void put(T row) => _table.save(row);
+
+  void delete() => _table.deleteById(true);
 }
 
 class RxSet<T> extends RxTable<T, T> {
