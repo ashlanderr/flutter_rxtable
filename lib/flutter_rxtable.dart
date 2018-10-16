@@ -142,6 +142,9 @@ class GroupObserver<K, ID, T> extends RxViewBase<K, List<T>> implements RxObserv
     _rebuild(t);
   }
 
+  @override
+  List<T> defaultValue() => const [];
+
   void _rebuild(Map<ID, T> items) {
     final Map<K, List<T>> newItems = {};
     items.forEach((_, item) {
@@ -166,6 +169,8 @@ abstract class RxView<ID, T> extends RxHandle {
   RxView(this.db, Equality<T> equality) : equality = equality ?? DefaultEquality();
 
   RxHandle subscribe(RxObserver<Map<ID, T>> observer);
+
+  T defaultValue() => null;
 
   bool get isEmpty {
     final observer = _observer(
@@ -196,7 +201,7 @@ abstract class RxView<ID, T> extends RxHandle {
   T get(ID id) {
     final observer = _observer(
       equality: equality,
-      mapper: (items) => items[id]
+      mapper: (items) => items[id] ?? defaultValue()
     );
     context.add(subscribe(observer));
     return observer.result;
