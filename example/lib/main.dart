@@ -30,11 +30,14 @@ class Task {
 
 class TaskDatabase extends RxDatabase {
   RxTable<String, Task> tasks;
-  RxView<bool, List<Task>> tasksByCompletion;
+  RxView<bool, MapEntry<bool, List<Task>>> tasksByCompletion;
 
   TaskDatabase() {
     tasks = RxTable(this, (t) => t.id);
-    tasksByCompletion = tasks.group((t) => t.completed);
+
+    tasksByCompletion = tasks
+      .group((t) => t.completed)
+      .materialize(this, (t) => t.key);
 
     tasks.save(Task("1", "One", true));
     tasks.save(Task("2", "Two", true));
@@ -167,7 +170,7 @@ class Title extends StatelessWidget {
     final db = TaskDatabase.of(context);
     print("build title, context = ${context.hashCode}, db.context = ${db.context.hashCode}");
     return Text(
-      "Tasks App (${db.tasksByCompletion[true]?.length ?? 0})"
+      "Tasks App (${db.tasksByCompletion[true].value.length})"
       //"Tasks App"
     );
   }
